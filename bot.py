@@ -28,8 +28,6 @@ def d2(a, b):
 WEAPON_VALUE = {"gun": 3.6, "laser": 5.0, "lightning": 3.4, "mortar": 2.4}
 PAIR_BONUS = {frozenset(("laser", "lightning")): 0.0, frozenset(("gun", "laser")): 0.6}
 
-EDGE_RATIO = 0.78   # where to hold, as a fraction of the next circle's radius (0 = center)
-
 UPGRADE_SCORE = {
     "plating": 10.0, "armor": 9.6, "laser_damage": 9.2, "laser_charge": 8.8, "nanites": 7.6,
     "lightning_efficiency": 7.4, "gun_damage": 7.2, "gun_rate": 7.0, "lightning_range": 6.8,
@@ -98,6 +96,7 @@ class Bot:
         self.prev_t = 0.0
         self.target_id = None
         self.peek = False
+        self.climb = False; self.enclosed = False; self.pos_hist = []
         gc.collect(); gc.freeze(); gc.disable()  # collect manually on light ticks (see act)
 
     # ------------------------------------------------------------------ utils
@@ -280,6 +279,8 @@ class Bot:
         if f is not None:
             self.field = f; self.field_t = t; self.field_pos = list(mp)
             self.path = None
+            # walled in (pit, courtyard, stadium bowl): only a small area is reachable on foot
+            self.enclosed = int(np.isfinite(f[1]).sum()) < 2500
 
     def path_dist(self, x, y):
         if self.field is None:
@@ -290,7 +291,9 @@ class Bot:
             k = self.W.nearest_pass(x, y, 3)
             if k is not None and np.isfinite(self.field[1][k]):
                 return float(self.field[1][k])
-            return 1e9
+            if getattr(self, "enclosed", False):
+                return 1e9
+            return d2((x, y), self.me["pos"]) * 1.35   # beyond the search limit: estimate
         return float(v)
 
     def steer_to(self, goal):
@@ -628,34 +631,41 @@ class Bot:
         if n > 1:
             move = (move[0] / n, move[1] / n)
 
-        # stuck handling
-        if self.last_pos is not None and n > 0.3 and me["grounded"]:
-            sp = d2(mp, self.last_pos) / max(t - self.prev_t, 1e-3)
-            if sp < 1.2:
-                self.stuck_t += t - self.prev_t
-            else:
-                self.stuck_t = max(0.0, self.stuck_t - 0.2)
-        else:
-            self.stuck_t = max(0.0, self.stuck_t - 0.1)
-        if self.stuck_t > 0.8 and t > self.unstick_until:
-            self.unstick_until = t + 1.2
-            a = math.atan2(move[1], move[0]) + self.rng.choice((-1, 1)) * (PI / 2 + self.rng.random())
-            self.unstick_dir = (math.cos(a), math.sin(a))
-            self.stuck_t = 0.0
-            self.path = None
-        if t < self.unstick_until:
-            if t < self.unstick_until - 0.6:
-                move = self.unstick_dir
-            if me["energy"] > 20:
-                jump = me["grounded"]
-                boost = not me["grounded"] and me["energy"] > 15
-        self.last_pos = list(mp); self.prev_t = t
+        # stuck handling: judge by net progress over a window (catches back-and-forth jitter)
+        hist = getattr(self, "pos_hist", [])
+        hist.append((t, mp[0], mp[1], n > 0.3))
+        hist = [h for h in hist if t - h[0] <= 2.5]
+        self.pos_hist = hist
+        if len(hist) >= 20 and all(h[3] for h in hist[-20:]) and t > self.unstick_until + 1.0:
+            if math.hypot(hist[-1][1] - hist[0][1], hist[-1][2] - hist[0][2]) < 4.0:
+                self.climb = True
+                self.pos_hist = []
+        goal_far = goal is not None and d2(mp, goal) > 25
+        if getattr(self, "enclosed", False) and goal_far and self.path_dist(goal[0], goal[1]) >= 1e8:
+            self.climb = True
+        if getattr(self, "climb", False):
+            gdir = ((goal[0] - mp[0]) / max(d2(mp, goal), 1e-3), (goal[1] - mp[1]) / max(d2(mp, goal), 1e-3)) if goal is not None else move
+            if me["grounded"] and t > self.unstick_until:
+                if me["energy"] >= 80 or not me["in_zone"] and me["energy"] >= 45:
+                    jump = True; boost = False
+                    move = gdir
+                    self.unstick_until = t + 4.0          # jet window
+                else:
+                    move = (0.0, 0.0); boost = False      # let energy refill (no spending)
+            elif not me["grounded"]:
+                move = gdir
+                boost = me["energy"] > 3                  # jet up and over
+            elif t <= self.unstick_until:
+                move = gdir
+            if me["grounded"] and t > self.unstick_until and not getattr(self, "enclosed", False):
+                self.climb = False
+                self.last_pos = list(mp); self.prev_t = t
 
         # don't sprint away energy needed for lightning in a fight
         _, lw = self.weapon("lightning")
         if lw is not None and mode == "engage" and me["energy"] < 40:
             boost = False
-        if boost and me["energy"] < 12:
+        if boost and me["energy"] < 12 and me["grounded"]:
             boost = False
 
         act["move"] = [round(move[0], 3), round(move[1], 3)]
@@ -708,7 +718,7 @@ class Bot:
         mp = self.me["pos"]
         nc = self.zone["next_center"]; nr = self.zone["next_radius"]
         d = d2(mp, nc)
-        target_r = nr * (0.7 if nr >= 80 else 0.55)
+        target_r = nr * 0.55
         if d <= target_r:
             return (mp[0], mp[1])
         f = target_r / d
@@ -728,13 +738,15 @@ class Bot:
             if not self.in_safe(dr["pos"], t, 0):
                 continue
             pd = self.path_dist(dr["pos"][0], dr["pos"][1])
-            if pd > 260:
+            if pd > 320:
                 continue
             arrive = pd / 12.0
             if dr["lands_in"] > arrive + 15:
                 continue
             contested = dr["holder"] is not None and dr["holder"] != me["id"]
-            s = 60 - pd * 0.15 - (25 if contested else 0) + (1 - me["hp"] / me["max_hp"]) * 30
+            s = 70 - pd * 0.12 - (25 if contested else 0) + (1 - me["hp"] / me["max_hp"]) * 40
+            if dr["lands_in"] <= 0 and d2(mp, dr["pos"]) < dr["radius"] - 1.5:
+                s += 200   # mid-capture: do not wander off
             if s > bs:
                 bs = s; best = (dr["pos"][0], dr["pos"][1]); lab = "drop"
         def danger(pos):
@@ -800,8 +812,7 @@ class Bot:
         jj = np.clip(np.rint(ys - W.y0).astype(int), 0, W.ny - 1); ii = np.clip(np.rint(xs - W.x0).astype(int), 0, W.nx - 1)
         cl = W.clear[jj, ii]
         dn = np.hypot(xs - nc[0], ys - nc[1])
-        ratio = EDGE_RATIO if nr >= 80 else 0.45   # edge play while circles are big
-        score = -0.04 * dd - 3.0 * (cl > 7) - 2.0 * np.abs(dn / max(nr, 1) - ratio) * 4 - 20 * (np.hypot(xs - cx, ys - cy) > r - 12)
+        score = -0.04 * dd - 3.0 * (cl > 7) - 2.0 * np.abs(dn / max(nr, 1) - 0.45) * 4 - 20 * (np.hypot(xs - cx, ys - cy) > r - 8)
         # stay away from known threats
         for tr in self.tracks.values():
             if t - tr.t < 20:
@@ -812,8 +823,8 @@ class Bot:
         return g
 
     def farm_target(self, t):
-        if t > 300:
-            return None
+        if t > 300 or self.me["hp"] < 0.85 * self.me["max_hp"]:
+            return None   # heal first: dealing damage resets regeneration
         mp = self.me["pos"]
         best = None; bd = 1e9
         for cid, (pos, hp, ts) in self.crates.items():
@@ -1053,6 +1064,8 @@ class Bot:
 
     def farm_shot(self, t):
         mp = self.me["pos"]
+        if self.me["hp"] < 0.85 * self.me["max_hp"]:
+            return None
         best = None; bd = 1e9
         for tr in self.npcs.values():
             if t - tr.t > 0.3:
@@ -1082,10 +1095,6 @@ class Bot:
         if abs(move[0]) + abs(move[1]) > 0.2:
             base = math.atan2(move[1], move[0])
             return [base + 0.9 * math.sin(self.scan_phase * 0.8), 0.0]
-        nc = self.zone["next_center"]; mp = me["pos"]
-        if self.zone["next_radius"] >= 80 and d2(mp, nc) > 0.5 * self.zone["next_radius"]:
-            inward = math.atan2(nc[1] - mp[1], nc[0] - mp[0])   # back to the zone, sweep the inside
-            return [inward + 1.6 * math.sin(self.scan_phase * 0.35), 0.0]
         return [self.scan_phase * 0.55 % TAU - PI, 0.0]
 
 
