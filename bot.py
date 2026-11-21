@@ -540,7 +540,7 @@ class Bot:
         for tr, p, dist, age in (threats if engaged else []):
             dps = self.our_dps(dist) + 1e-3
             ttk = tr.hp / dps
-            score = ttk + dist / 60.0 + age * 2.0 + (3.0 if tr.est else 0.0)
+            score = ttk + dist / 60.0 + age * 2.0 + (3.0 if tr.est else 0.0) + (0.0 if age < 0.3 and not tr.est else 6.0)
             if tr.id == self.target_id:
                 score -= 1.5
             if score < best:
@@ -914,7 +914,7 @@ class Bot:
         for pid, (kind, pos, ts) in self.pickups.items():
             if kind in ks or pos[2] > self.W.ground(pos[0], pos[1]) + 3 or not self.in_safe(pos, t, 0):
                 continue
-            if d2(pos, mp) > 220:
+            if d2(pos, mp) > (320 if len(ks) < 2 else 220):
                 continue
             if len(ks) < 2:
                 g = self.loadout_value(ks + [kind]) - cur
