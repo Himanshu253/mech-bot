@@ -540,7 +540,7 @@ class Bot:
         for tr, p, dist, age in (threats if engaged else []):
             dps = self.our_dps(dist) + 1e-3
             ttk = tr.hp / dps
-            score = ttk + dist / 60.0 + age * 2.0 + (3.0 if tr.est else 0.0) + (0.0 if age < 0.3 and not tr.est else 6.0)
+            score = ttk + dist / 60.0 + age * 2.0 + (3.0 if tr.est else 0.0)
             if tr.id == self.target_id:
                 score -= 1.5
             if score < best:
@@ -914,7 +914,7 @@ class Bot:
         for pid, (kind, pos, ts) in self.pickups.items():
             if kind in ks or pos[2] > self.W.ground(pos[0], pos[1]) + 3 or not self.in_safe(pos, t, 0):
                 continue
-            if d2(pos, mp) > (320 if len(ks) < 2 else 220):
+            if d2(pos, mp) > 220:
                 continue
             if len(ks) < 2:
                 g = self.loadout_value(ks + [kind]) - cur
@@ -1059,6 +1059,8 @@ class Bot:
                     ok = on_target(desired, rad_ang * 0.85, math.atan2(3.0 * size, max(dist, 1)))
                     if held >= full - 0.01 and los_ok and ok:
                         fire[li] = False  # release
+                    elif held >= full - 0.01 and self.crosshair_target(obs, t, muzzle):
+                        fire[li] = False  # someone else is under the crosshair right now: take that shot
                     elif held >= full + lw["stats"].get("hold_s", 2.0) - 0.25 and not los_ok:
                         fire[li] = True   # will fire anyway; keep aim on target
                     else:
@@ -1118,6 +1120,28 @@ class Bot:
             if gw is not None and gw["ammo"] < gw["stats"]["mag"] * 0.6 and gw["reload"] == 0:
                 reload_ = True
         return aim, fire, reload_
+
+    def crosshair_target(self, obs, t, muzzle):
+        """True if a visible enemy mech sits on our current (actual) aim line with a clear shot."""
+        me = self.me; cy, cp = me["aim"]
+        for m in obs["mechs"]:
+            if m["kind"] != "mech":
+                continue
+            tr = self.tracks.get(m["id"])
+            if tr is None or t - tr.t > 0.15 or tr.est:
+                continue
+            size = 1 + 0.05 * (m.get("cubes") or 0)
+            c = [m["pos"][0], m["pos"][1], m["pos"][2] + 4.5 * size]
+            dx = c[0] - muzzle[0]; dy = c[1] - muzzle[1]; dist = math.hypot(dx, dy)
+            if dist < 5 or dist > self.weapon("laser")[1]["stats"]["range"]:
+                continue
+            if abs(angdiff(cy, math.atan2(dy, dx))) > math.atan2(2.0 * size, dist):
+                continue
+            if abs(cp - math.atan2(c[2] - muzzle[2], dist)) > math.atan2(3.5 * size, dist):
+                continue
+            if self.W.los(muzzle, c):
+                return True
+        return False
 
     def farm_shot(self, t):
         mp = self.me["pos"]
