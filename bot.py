@@ -97,6 +97,9 @@ class Bot:
         self.target_id = None
         self.peek = False
         self.climb = False; self.enclosed = False; self.pos_hist = []
+        # 40 m exploration grid: which parts of the map we have looked at (for finding crates/drones)
+        self.EG = 40.0
+        self.seen = np.zeros((int((self.W.ny + 39) // 40) + 1, int((self.W.nx + 39) // 40) + 1), bool) if self.W is not None else None
         gc.collect(); gc.freeze(); gc.disable()  # collect manually on light ticks (see act)
 
     # ------------------------------------------------------------------ utils
@@ -167,6 +170,9 @@ class Bot:
     def perceive(self, obs):
         t = obs["t"]; me = self.me
         seen_ids = set()
+        if self.seen is not None:
+            gj = int((me["pos"][1] - self.W.y0) / self.EG); gi = int((me["pos"][0] - self.W.x0) / self.EG)
+            self.seen[max(gj - 1, 0):gj + 2, max(gi - 1, 0):gi + 2] = True
         for m in obs["mechs"]:
             if m["kind"] == "mech":
                 seen_ids.add(m["id"])
@@ -795,7 +801,7 @@ class Bot:
         ft = self.farm_target(t)
         if ft is not None:
             pos, kind, dist = ft
-            s = 18 - dist * 0.08
+            s = 38 - dist * 0.08
             if s > bs:
                 bs = s
                 # stand off at ~60% of the distance, staying out of npc aggro range
@@ -808,9 +814,44 @@ class Bot:
                 else:
                     best = (mp[0], mp[1])
                 lab = f"farm {kind}"
+        if best is None and t < 330 and me["hp"] > 0.6 * me["max_hp"]:
+            eg = self.explore_goal(t)
+            if eg is not None:
+                best = eg; lab = "explore"
         if best is None:
             best = self.hold_goal(t); lab = "hold"
         return best, lab
+
+    def explore_goal(self, t):
+        """Nearest not-yet-seen 40 m cell inside the safe zone, away from known enemies."""
+        if self.seen is None:
+            return None
+        mp = self.me["pos"]
+        cx, cy, r = self.zone_at(self.zone, t + 30)
+        ny, nx = self.seen.shape
+        gx = self.W.x0 + (np.arange(nx) + 0.5) * self.EG; gy = self.W.y0 + (np.arange(ny) + 0.5) * self.EG
+        X, Y = np.meshgrid(gx, gy)
+        ok = (~self.seen) & (np.hypot(X - cx, Y - cy) < r - 25)
+        if not ok.any():
+            return None
+        cost = np.hypot(X - mp[0], Y - mp[1])
+        for tr in self.tracks.values():
+            if t - tr.t < 15:
+                cost += 400.0 * (np.hypot(X - tr.pos[0], Y - tr.pos[1]) < 90)
+        cost[~ok] = np.inf
+        j, i = np.unravel_index(int(np.argmin(cost)), cost.shape)
+        if not np.isfinite(cost[j, i]):
+            return None
+        # snap to a walkable spot near the cell center
+        k = self.W.nearest_pass(float(X[j, i]), float(Y[j, i]), 10)
+        if k is None:
+            self.seen[j, i] = True
+            return None
+        g = self.W.nav_xy(k)
+        if self.path_dist(g[0], g[1]) >= 1e8:
+            self.seen[j, i] = True   # unreachable: skip it
+            return None
+        return g
 
     def hold_goal(self, t):
         """A spot inside the next circle, near walls (cover), close to us."""
@@ -839,7 +880,7 @@ class Bot:
         return g
 
     def farm_target(self, t):
-        if t > 300 or self.me["hp"] < 0.85 * self.me["max_hp"]:
+        if t > 360 or self.me["hp"] < 0.85 * self.me["max_hp"]:
             return None   # heal first: dealing damage resets regeneration
         mp = self.me["pos"]
         best = None; bd = 1e9
@@ -847,14 +888,14 @@ class Bot:
             if pos[2] > self.W.ground(pos[0], pos[1]) + 3 or not self.in_safe(pos, t, 0):
                 continue
             dist = d2(pos, mp)
-            if dist < 150 and dist < bd:
+            if dist < 250 and dist < bd:
                 bd = dist; best = (pos, "crate", dist)
         if self.weapon("laser")[1] is not None or self.weapon("gun")[1] is not None:
             for tr in self.npcs.values():
                 if t - tr.t > 20 or not self.in_safe(tr.pos, t, 0):
                     continue
                 dist = d2(tr.pos, mp)
-                if dist < 160 and dist + 30 < bd and self.me["hp"] > 0.6 * self.me["max_hp"]:
+                if dist < 250 and dist + 30 < bd and self.me["hp"] > 0.6 * self.me["max_hp"]:
                     bd = dist + 30; best = (tr.pos, "npc", dist)
         return best
 
