@@ -25,8 +25,8 @@ def d2(a, b):
 
 
 # How much we like holding each weapon (pairs get a synergy bonus below).
-WEAPON_VALUE = {"gun": 3.6, "laser": 5.0, "lightning": 3.4, "mortar": 2.4}
-PAIR_BONUS = {frozenset(("laser", "lightning")): 0.0, frozenset(("gun", "laser")): 0.6}
+WEAPON_VALUE = {"gun": 3.0, "laser": 5.0, "lightning": 4.6, "mortar": 2.4}
+PAIR_BONUS = {frozenset(("laser", "lightning")): 1.0, frozenset(("gun", "laser")): 0.6}
 
 UPGRADE_SCORE = {
     "plating": 10.0, "armor": 9.6, "laser_damage": 9.2, "laser_charge": 8.8, "nanites": 7.6,
