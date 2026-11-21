@@ -538,11 +538,11 @@ class Bot:
             out = self.our_dps(max(dist, 10)) + 1e-3
             ttk = tr.hp / out
             ttd = me["hp"] / incoming
-            margin = 0.9 if self.ffa else 1.1
+            margin = 1.0 if self.ffa else 1.4
             winning = ttk < ttd * margin
             n_act = len(active)
-            low = hp_frac < (0.4 if self.ffa else 0.33)
-            finishing = tr.hp < 260 and dist < 120 and n_act <= 1
+            low = hp_frac < (0.35 if self.ffa else 0.24)
+            finishing = tr.hp < 380 and dist < 150 and n_act <= 2
             if low and not finishing:
                 mode = "retreat"
             elif finishing or (winning and n_act <= 1):
@@ -550,7 +550,7 @@ class Bot:
             elif winning:
                 mode = "engage" if dist < 60 else "cover"   # several enemies: fight from cover / peeks
             else:
-                mode = "cover" if (dist < 160 and hp_frac > 0.5) else "retreat"
+                mode = "cover" if (dist < 160 and hp_frac > 0.4) else "retreat"
             # in FFA, avoid starting long fights with healthy, distant mechs
             if self.ffa and mode == "engage" and age > 2.0 and dist > 120 and tr.hp > 700:
                 mode = "cover"
@@ -579,7 +579,7 @@ class Bot:
             if mode == "engage" and laser is not None and "lightning" not in self.kinds():
                 # peek cycle: hide while the laser recharges, expose once it can fire
                 ready = laser["cooldown"] < 0.5
-                if not ready and dist > 60 and tr.hp > 300:
+                if not ready and dist > 90 and tr.hp > 380:
                     mode = "cover"
             if mode == "cover" and laser is not None and laser.get("charge", 0) >= laser["stats"]["charge"] - 0.05 and hp_frac > 0.3:
                 mode = "engage"   # charged behind cover: peek out and shoot
