@@ -29,7 +29,7 @@ WEAPON_VALUE = {"gun": 3.6, "laser": 5.0, "lightning": 3.4, "mortar": 2.4}
 PAIR_BONUS = {frozenset(("laser", "lightning")): 0.0, frozenset(("gun", "laser")): 0.6}
 
 UPGRADE_SCORE = {
-    "plating": 10.0, "armor": 9.6, "laser_damage": 9.2, "laser_charge": 8.8, "nanites": 7.6,
+    "sensors": 11.0, "laser_damage": 10.6, "laser_charge": 10.4, "plating": 10.0, "armor": 9.6, "nanites": 7.6,
     "lightning_efficiency": 7.4, "gun_damage": 7.2, "gun_rate": 7.0, "lightning_range": 6.8,
     "servos": 5.6, "reactor": 5.4, "sensors": 5.2, "gun_mag": 5.0, "capacitor": 4.8,
     "lightning_chain": 4.4, "gun_velocity": 4.6, "laser_pierce": 3.0, "gyros": 3.6, "jets": 3.4,
@@ -433,7 +433,7 @@ class Bot:
         if "lightning" in ks and self.me["energy"] > 25:
             return (8.0, 32.0)
         if "laser" in ks:
-            return (100.0, 195.0)
+            return (70.0, 190.0)
         if "mortar" in ks and "gun" not in ks:
             return (50.0, 150.0)
         return (25.0, 90.0)
