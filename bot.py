@@ -433,7 +433,8 @@ class Bot:
         if "lightning" in ks and self.me["energy"] > 25:
             return (8.0, 32.0)
         if "laser" in ks:
-            return (70.0, 190.0)
+            vis = 200.0 + self.me['stats'].get('vision_bonus', 0.0)
+            return (max(100.0, vis * 0.5), vis - 8.0)
         if "mortar" in ks and "gun" not in ks:
             return (50.0, 150.0)
         return (25.0, 90.0)
