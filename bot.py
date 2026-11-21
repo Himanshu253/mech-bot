@@ -370,7 +370,7 @@ class Bot:
 
     def choose_position(self, t, mode, main, threats):
         """mode: 'engage', 'cover', 'retreat'. Returns goal (x, y)."""
-        c = self.candidates(t, radius=45.0 if mode != "retreat" else 70.0)
+        c = self.candidates(t, radius={"retreat": 70.0, "kite": 60.0}.get(mode, 45.0))
         if c is None:
             return None
         xs, ys, zs, dd = c
@@ -401,6 +401,13 @@ class Bot:
         if mode == "engage":
             score += 9.0 * vis[:, main_idx] - 3.5 * others - 0.12 * band
             # prefer some clearance nearby for jinking but near walls for quick cover
+        elif mode == "kite":
+            # the main target is the leader: keep it in view and in range; the rest far away and blind to us
+            if tdist.shape[1] > 1:
+                od = np.where(np.arange(tdist.shape[1])[None, :] == main_idx, 1e9, tdist).min(1)
+            else:
+                od = np.full(n, 200.0)
+            score += 7.0 * vis[:, main_idx] - 5.0 * others + 0.09 * np.minimum(od, 220) - 0.08 * band
         elif mode == "cover":
             score += -9.0 * vis.any(1) - 0.05 * band - 0.6 * (tdist.min(1) < 25)
         else:  # retreat
@@ -532,6 +539,12 @@ class Bot:
                 score -= 1.5
             if score < best:
                 best = score; main = (tr, p, dist, age)
+        if main is not None and engaged:
+            act_th = [x for x in threats if x[3] < 5 and x[2] < 240]
+            if len(act_th) >= 2:
+                lead = min(act_th, key=lambda x: x[2] + x[3] * 30)
+                if lead[2] < main[2] - 25:
+                    main = lead   # with several inbound, the closest one is the fight to take
         self.target_id = main[0].id if main else None
 
         # ---------------- fight evaluation
@@ -553,9 +566,12 @@ class Bot:
             elif finishing or (winning and n_act <= 1):
                 mode = "engage"
             elif winning:
-                mode = "engage" if dist < 60 else "cover"   # several enemies: fight from cover / peeks
+                mode = "kite"   # several enemies: fight the leader, keep the rest strung out behind
             else:
-                mode = "cover" if (dist < 160 and hp_frac > 0.4) else "retreat"
+                if n_act >= 2 and hp_frac > 0.4:
+                    mode = "kite"
+                else:
+                    mode = "cover" if (dist < 160 and hp_frac > 0.4) else "retreat"
             # in FFA, avoid starting long fights with healthy, distant mechs
             if self.ffa and mode == "engage" and age > 2.0 and dist > 120 and tr.hp > 700:
                 mode = "cover"
@@ -575,11 +591,11 @@ class Bot:
             zone_urgent = True
 
         laser_i, laser = self.weapon("laser")
-        grab = self.grab_nearby(t) if mode in ("engage", "cover") else None
+        grab = self.grab_nearby(t) if mode in ("engage", "cover", "kite") else None
         if grab is not None:
             goal, label = grab
             boost = False
-        elif mode in ("engage", "cover", "retreat") and main is not None:
+        elif mode in ("engage", "cover", "retreat", "kite") and main is not None:
             tr, p, dist, age = main
             if mode == "engage" and laser is not None and "lightning" not in self.kinds():
                 # peek cycle: hide while the laser recharges, expose once it can fire
@@ -611,7 +627,7 @@ class Bot:
                 move = (0.0, 0.0)
 
         # jink when exposed in a fight
-        if mode == "engage" and main is not None:
+        if mode in ("engage", "kite") and main is not None:
             if t > self.jink_t:
                 self.jink = -self.jink if self.rng.random() < 0.7 else self.jink
                 self.jink_t = t + 0.35 + self.rng.random() * 0.6
