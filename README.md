@@ -12,16 +12,6 @@ A Python bot for the mechfight/1 battle royale. It fights from cover with a lase
 | `mechfight.py` | The kit's wrapper, unchanged. |
 | `sim/` | Local simulator for testing (not copied into the image). |
 
-## Check before submitting
-
-From the kit folder, with this repository at `../repo`:
-
-```sh
-docker build -t my-bot ../repo
-python3 check/check.py --map-dir /arena -- docker run --rm -i --network none --cpus 1 --memory 512m --read-only --tmpfs /tmp:rw,size=64m --user 65534:65534 -v "$PWD/arena:/arena:ro" my-bot
-```
-
-If the map cannot be loaded, the bot logs it to stderr and falls back to a simple map-free policy rather than standing still.
 
 ## How it plays
 
