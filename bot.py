@@ -433,7 +433,7 @@ class Bot:
         if "lightning" in ks and self.me["energy"] > 25:
             return (8.0, 32.0)
         if "laser" in ks:
-            return (45.0, 160.0)
+            return (30.0, 110.0)
         if "mortar" in ks and "gun" not in ks:
             return (50.0, 150.0)
         return (25.0, 90.0)
