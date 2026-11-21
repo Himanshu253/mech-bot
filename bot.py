@@ -28,6 +28,8 @@ def d2(a, b):
 WEAPON_VALUE = {"gun": 3.6, "laser": 5.0, "lightning": 3.4, "mortar": 2.4}
 PAIR_BONUS = {frozenset(("laser", "lightning")): 0.0, frozenset(("gun", "laser")): 0.6}
 
+EDGE_RATIO = 0.78   # where to hold, as a fraction of the next circle's radius (0 = center)
+
 UPGRADE_SCORE = {
     "plating": 10.0, "armor": 9.6, "laser_damage": 9.2, "laser_charge": 8.8, "nanites": 7.6,
     "lightning_efficiency": 7.4, "gun_damage": 7.2, "gun_rate": 7.0, "lightning_range": 6.8,
@@ -538,17 +540,17 @@ class Bot:
             out = self.our_dps(max(dist, 10)) + 1e-3
             ttk = tr.hp / out
             ttd = me["hp"] / incoming
-            margin = 1.0 if self.ffa else 1.8
+            margin = 1.0 if self.ffa else 1.4
             winning = ttk < ttd * margin
             n_act = len(active)
-            low = hp_frac < (0.35 if self.ffa else 0.18)
-            finishing = tr.hp < (380 if self.ffa else 500) and dist < 160 and n_act <= 2
+            low = hp_frac < (0.35 if self.ffa else 0.24)
+            finishing = tr.hp < 380 and dist < 150 and n_act <= 2
             if low and not finishing:
                 mode = "retreat"
             elif finishing or (winning and n_act <= 1):
                 mode = "engage"
             elif winning:
-                mode = "engage" if dist < (60 if self.ffa else 90) else "cover"   # several enemies: fight from cover / peeks
+                mode = "engage" if dist < 60 else "cover"   # several enemies: fight from cover / peeks
             else:
                 mode = "cover" if (dist < 160 and hp_frac > 0.4) else "retreat"
             # in FFA, avoid starting long fights with healthy, distant mechs
@@ -706,7 +708,7 @@ class Bot:
         mp = self.me["pos"]
         nc = self.zone["next_center"]; nr = self.zone["next_radius"]
         d = d2(mp, nc)
-        target_r = nr * 0.55
+        target_r = nr * (0.7 if nr >= 80 else 0.55)
         if d <= target_r:
             return (mp[0], mp[1])
         f = target_r / d
@@ -798,7 +800,8 @@ class Bot:
         jj = np.clip(np.rint(ys - W.y0).astype(int), 0, W.ny - 1); ii = np.clip(np.rint(xs - W.x0).astype(int), 0, W.nx - 1)
         cl = W.clear[jj, ii]
         dn = np.hypot(xs - nc[0], ys - nc[1])
-        score = -0.04 * dd - 3.0 * (cl > 7) - 2.0 * np.abs(dn / max(nr, 1) - 0.45) * 4 - 20 * (np.hypot(xs - cx, ys - cy) > r - 8)
+        ratio = EDGE_RATIO if nr >= 80 else 0.45   # edge play while circles are big
+        score = -0.04 * dd - 3.0 * (cl > 7) - 2.0 * np.abs(dn / max(nr, 1) - ratio) * 4 - 20 * (np.hypot(xs - cx, ys - cy) > r - 12)
         # stay away from known threats
         for tr in self.tracks.values():
             if t - tr.t < 20:
@@ -1079,6 +1082,10 @@ class Bot:
         if abs(move[0]) + abs(move[1]) > 0.2:
             base = math.atan2(move[1], move[0])
             return [base + 0.9 * math.sin(self.scan_phase * 0.8), 0.0]
+        nc = self.zone["next_center"]; mp = me["pos"]
+        if self.zone["next_radius"] >= 80 and d2(mp, nc) > 0.5 * self.zone["next_radius"]:
+            inward = math.atan2(nc[1] - mp[1], nc[0] - mp[0])   # back to the zone, sweep the inside
+            return [inward + 1.6 * math.sin(self.scan_phase * 0.35), 0.0]
         return [self.scan_phase * 0.55 % TAU - PI, 0.0]
 
 
