@@ -25,8 +25,8 @@ def d2(a, b):
 
 
 # How much we like holding each weapon (pairs get a synergy bonus below).
-WEAPON_VALUE = {"gun": 3.0, "laser": 5.0, "lightning": 4.6, "mortar": 2.4}
-PAIR_BONUS = {frozenset(("laser", "lightning")): 1.0, frozenset(("gun", "laser")): 0.6}
+WEAPON_VALUE = {"gun": 3.6, "laser": 5.0, "lightning": 3.4, "mortar": 2.4}
+PAIR_BONUS = {frozenset(("laser", "lightning")): 0.0, frozenset(("gun", "laser")): 0.6}
 
 UPGRADE_SCORE = {
     "plating": 10.0, "armor": 9.6, "laser_damage": 9.2, "laser_charge": 8.8, "nanites": 7.6,
@@ -538,17 +538,17 @@ class Bot:
             out = self.our_dps(max(dist, 10)) + 1e-3
             ttk = tr.hp / out
             ttd = me["hp"] / incoming
-            margin = 1.0 if self.ffa else 1.4
+            margin = 1.0 if self.ffa else 1.8
             winning = ttk < ttd * margin
             n_act = len(active)
-            low = hp_frac < (0.35 if self.ffa else 0.24)
-            finishing = tr.hp < 380 and dist < 150 and n_act <= 2
+            low = hp_frac < (0.35 if self.ffa else 0.18)
+            finishing = tr.hp < (380 if self.ffa else 500) and dist < 160 and n_act <= 2
             if low and not finishing:
                 mode = "retreat"
             elif finishing or (winning and n_act <= 1):
                 mode = "engage"
             elif winning:
-                mode = "engage" if dist < 60 else "cover"   # several enemies: fight from cover / peeks
+                mode = "engage" if dist < (60 if self.ffa else 90) else "cover"   # several enemies: fight from cover / peeks
             else:
                 mode = "cover" if (dist < 160 and hp_frac > 0.4) else "retreat"
             # in FFA, avoid starting long fights with healthy, distant mechs
